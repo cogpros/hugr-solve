@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hugr Solve</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a2e;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 32px 24px;
+    }
+
+    .book-container {
+      max-width: 780px;
+      width: 100%;
+      position: relative;
+    }
+
+    .book {
+      background: #f0ead4;
+      background-image:
+        url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      padding: 0;
+      min-height: 600px;
+      position: relative;
+      box-shadow:
+        0 2px 20px rgba(0,0,0,0.5),
+        0 0 0 1px rgba(0,0,0,0.1);
+    }
+
+    .masthead {
+      text-align: center;
+      padding: 28px 40px 0;
+      border-bottom: 4px double #1a1a1a;
+      margin: 0 24px;
+    }
+
+    .masthead-rule-top {
+      height: 2px;
+      background: #1a1a1a;
+      margin-bottom: 12px;
+    }
+
+    .masthead-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 48px;
+      font-weight: 900;
+      color: #1a1a1a;
+      letter-spacing: 2px;
+      line-height: 1.1;
+      margin-bottom: 4px;
+    }
+
+    .masthead-subtitle {
+      font-family: 'Lora', serif;
+      font-style: italic;
+      font-size: 16px;
+      color: #555;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+    }
+
+    .masthead-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: 'Lora', serif;
+      font-size: 14px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      padding: 6px 0;
+      border-top: 1px solid #1a1a1a;
+    }
+
+    .page-body {
+      padding: 24px 40px 32px;
+      margin: 0 24px;
+    }
+
+    .page-headline {
+      font-family: 'Playfair Display', serif;
+      font-weight: 900;
+      font-size: 28px;
+      color: #1a1a1a;
+      line-height: 1.2;
+      text-align: center;
+      margin-bottom: 4px;
+    }
+
+    .page-byline {
+      font-family: 'Lora', serif;
+      font-style: italic;
+      font-size: 17px;
+      color: #666;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .page-rule {
+      height: 1px;
+      background: #999;
+      margin: 0 auto 20px;
+      width: 60px;
+    }
+
+    .page-content {
+      font-family: 'Lora', serif;
+      font-size: 19px;
+      line-height: 1.75;
+      color: #1a1a1a;
+      column-count: 2;
+      column-gap: 32px;
+      column-rule: 1px solid #ccc;
+    }
+
+    .page-content strong {
+      font-family: 'Playfair Display', serif;
+      font-weight: 700;
+      color: #1a1a1a;
+    }
+
+    .page-content hr {
+      border: none;
+      height: 1px;
+      background: #aaa;
+      margin: 20px 0;
+      column-span: all;
+    }
+
+    .page-content p {
+      margin-bottom: 12px;
+      text-align: justify;
+      text-indent: 1.5em;
+    }
+
+    .page-content p:first-child { text-indent: 0; }
+
+    .page-content p:first-child::first-letter {
+      font-family: 'Playfair Display', serif;
+      font-size: 3.2em;
+      float: left;
+      line-height: 0.8;
+      margin: 4px 8px 0 0;
+      color: #1a1a1a;
+      font-weight: 900;
+    }
+
+    .page-content h1, .page-content h2, .page-content h3 {
+      font-family: 'Playfair Display', serif;
+      color: #1a1a1a;
+      margin: 20px 0 10px;
+      column-span: all;
+    }
+
+    .page-content h1 { font-size: 22px; font-weight: 900; }
+    .page-content h2 {
+      font-size: 21px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 4px;
+    }
+    .page-content h3 { font-size: 19px; font-weight: 700; font-style: italic; }
+
+    .page-content ul, .page-content ol { margin: 8px 0 12px 20px; }
+    .page-content li { margin-bottom: 4px; text-align: left; }
+
+    .status-badge {
+      display: inline-block;
+      font-family: 'Lora', serif;
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      padding: 4px 12px;
+      border: 1px solid;
+      margin-bottom: 8px;
+    }
+
+    .status-resolved { color: #2d5a27; border-color: #2d5a27; background: rgba(45,90,39,0.08); }
+    .status-deadlocked { color: #8b4513; border-color: #8b4513; background: rgba(139,69,19,0.08); }
+    .status-max_rounds { color: #555; border-color: #999; background: rgba(0,0,0,0.05); }
+
+    .page-nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 28px;
+      padding-top: 16px;
+      border-top: 2px solid #1a1a1a;
+    }
+
+    .page-nav button {
+      font-family: 'Lora', serif;
+      font-size: 16px;
+      color: #555;
+      background: none;
+      border: 1px solid #ccc;
+      padding: 6px 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .page-nav button:hover { color: #1a1a1a; border-color: #1a1a1a; }
+    .page-nav button:disabled { opacity: 0.25; cursor: default; }
+    .page-nav button:disabled:hover { color: #555; border-color: #ccc; }
+
+    .page-number {
+      font-family: 'Lora', serif;
+      font-style: italic;
+      font-size: 15px;
+      color: #888;
+    }
+
+    .page-number a { color: #888; text-decoration: none; }
+    .page-number a:hover { color: #1a1a1a; }
+
+    .index-list { list-style: none; padding: 0; }
+
+    .index-list li {
+      font-family: 'Lora', serif;
+      font-size: 19px;
+      padding: 14px 0;
+      border-bottom: 1px solid #ddd;
+      cursor: pointer;
+      color: #1a1a1a;
+      transition: all 0.15s;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+    }
+
+    .index-list li:first-child { border-top: 1px solid #ddd; }
+    .index-list li:hover { background: rgba(0,0,0,0.03); padding-left: 8px; }
+
+    .index-list li .index-date {
+      font-family: 'Playfair Display', serif;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .index-list li .index-meta {
+      font-size: 16px;
+      font-style: italic;
+      color: #777;
+      text-align: right;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 80px 40px;
+      font-family: 'Lora', serif;
+      font-style: italic;
+      font-size: 16px;
+      color: #888;
+    }
+
+    .paper-footer {
+      text-align: center;
+      padding: 16px 40px;
+      margin: 0 24px;
+      border-top: 4px double #1a1a1a;
+      font-family: 'Lora', serif;
+      font-size: 13px;
+      color: #999;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="book-container">
+    <div class="book" id="book"></div>
+  </div>
+
+<script>
+const VIEWER_CONFIG = {
+  title: "Hugr Solve",
+  subtitle: "Adversarial Synthesis Engine",
+  org: "Hugr Solve",
+  footer: "Hugr Solve",
+  established: "2026"
+};
+
+// EMBEDDED_DATA_START
+let SOLVES = [];
+// EMBEDDED_DATA_END
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return months[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function mdToHtml(md) {
+  let html = escapeHtml(md);
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  html = html.replace(/^---$/gm, '<hr>');
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+
+  const lines = html.split('\n');
+  let result = [];
+  let paragraphLines = [];
+
+  function flushParagraph() {
+    if (paragraphLines.length > 0) {
+      result.push('<p>' + paragraphLines.join(' ') + '</p>');
+      paragraphLines = [];
+    }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) { flushParagraph(); continue; }
+    if (trimmed.startsWith('<h') || trimmed.startsWith('<hr') ||
+        trimmed.startsWith('<ul') || trimmed.startsWith('<li') ||
+        trimmed.startsWith('</ul')) {
+      flushParagraph();
+      result.push(trimmed);
+    } else {
+      paragraphLines.push(trimmed);
+    }
+  }
+  flushParagraph();
+
+  return result.join('\n');
+}
+
+function extractStatus(content) {
+  const m = content.match(/\*\*Status:\*\*\s*(\w+)/);
+  return m ? m[1].toUpperCase() : '';
+}
+
+function extractCost(content) {
+  const m = content.match(/\*\*Cost:\*\*\s*\$?([\d.]+)/);
+  return m ? '$' + m[1] : '';
+}
+
+function renderIndex() {
+  const book = document.getElementById('book');
+  if (SOLVES.length === 0) {
+    book.innerHTML = `
+      <div class="masthead">
+        <div class="masthead-rule-top"></div>
+        <div class="masthead-title">${VIEWER_CONFIG.title}</div>
+        <div class="masthead-subtitle">${VIEWER_CONFIG.subtitle}</div>
+        <div class="masthead-meta"><span>${VIEWER_CONFIG.org}</span><span>No sessions yet</span></div>
+      </div>
+      <div class="page-body">
+        <div class="empty-state">No solve sessions yet. Run hugr-solve.sh to start your first adversarial synthesis.</div>
+      </div>
+    `;
+    return;
+  }
+
+  let items = SOLVES.map((d, i) => {
+    const status = extractStatus(d.content);
+    const cost = extractCost(d.content);
+    const topic = d.topic ? d.topic.replace(/-/g, ' ') : 'untitled';
+
+    return `<li onclick="renderPage(${i})">
+      <span class="index-date">${formatDate(d.date)}</span>
+      <span class="index-meta">${topic} ${status ? '(' + status.toLowerCase() + ')' : ''} ${cost}</span>
+    </li>`;
+  }).join('');
+
+  book.innerHTML = `
+    <div class="masthead">
+      <div class="masthead-rule-top"></div>
+      <div class="masthead-title">${VIEWER_CONFIG.title}</div>
+      <div class="masthead-subtitle">${VIEWER_CONFIG.subtitle}</div>
+      <div class="masthead-meta"><span>${VIEWER_CONFIG.org}</span><span>${SOLVES.length} Sessions</span><span>Est. ${VIEWER_CONFIG.established}</span></div>
+    </div>
+    <div class="page-body">
+      <ul class="index-list">${items}</ul>
+    </div>
+    <div class="paper-footer">${VIEWER_CONFIG.footer}</div>
+  `;
+}
+
+function renderPage(index) {
+  const book = document.getElementById('book');
+  const d = SOLVES[index];
+  const total = SOLVES.length;
+
+  let content = d.content;
+  const titleMatch = content.match(/^# .+$/m);
+  let headline = d.topic ? d.topic.replace(/-/g, ' ') : 'Solve Session';
+  if (titleMatch) {
+    headline = titleMatch[0].replace(/^# /, '');
+    content = content.replace(titleMatch[0], '').trim();
+  }
+
+  const status = extractStatus(content);
+  const statusClass = status ? 'status-' + status.toLowerCase() : '';
+
+  const html = mdToHtml(content);
+
+  book.innerHTML = `
+    <div class="masthead">
+      <div class="masthead-rule-top"></div>
+      <div class="masthead-title">${VIEWER_CONFIG.title}</div>
+      <div class="masthead-subtitle">${VIEWER_CONFIG.subtitle}</div>
+      <div class="masthead-meta">
+        <span>${formatDate(d.date)}</span>
+        <span>${status ? '<span class="status-badge ' + statusClass + '">' + status + '</span>' : ''}</span>
+        <span>Session ${index + 1}</span>
+      </div>
+    </div>
+    <div class="page-body">
+      <div class="page-headline">${headline}</div>
+      <div class="page-rule"></div>
+      <div class="page-content">${html}</div>
+      <div class="page-nav">
+        <button onclick="renderPage(${index - 1})" ${index === 0 ? 'disabled' : ''}>&larr; PREV</button>
+        <span class="page-number">Session ${index + 1} of ${total} &middot; <a href="#" onclick="event.preventDefault(); renderIndex();">Index</a></span>
+        <button onclick="renderPage(${index + 1})" ${index === total - 1 ? 'disabled' : ''}>NEXT &rarr;</button>
+      </div>
+    </div>
+    <div class="paper-footer">${VIEWER_CONFIG.footer}</div>
+  `;
+
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+renderIndex();
+</script>
+</body>
+</html>
