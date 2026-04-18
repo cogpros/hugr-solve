@@ -26,9 +26,20 @@ JSON_OUTPUT=false
 ARTIFACT_PHASE=true
 ARTIFACT_MAX_TOKENS=6000
 DRIFT_CHECK_MAX_TOKENS=1500
-ARTIFACT_PHASE_RULES="You are now in ARTIFACT PHASE. The adversarial discussion has already resolved. Your only job in this turn is to produce the final deliverable cleanly, using the full token budget available to you. Do not reopen closed questions. Do not restart the debate. Build the thing."
+ARTIFACT_PHASE_RULES="You are now in ARTIFACT PHASE. The adversarial discussion has already resolved. Your only job in this turn is to produce the final deliverable cleanly, using the full token budget available to you.
+
+Rules for this turn (these replace the normal debate protocol):
+- Build the deliverable. No preamble. No reopening of closed questions. No restart of the debate.
+- Do NOT emit [SEARCH:], [RESOLVED], or [DEADLOCKED]. These markers belong to the debate phase. Emitting them here will appear as literal text inside the deliverable and may corrupt downstream extraction."
 ARTIFACT_PHASE_PROMPT="The discussion has reached [RESOLVED]. Now produce the final deliverable based on what was just resolved. Use the full token budget. No preamble. No reopening of debate. Build the artifact the problem asked for."
-DRIFT_CHECK_RULES="You are now in DRIFT CHECK PHASE. An artifact was just produced by the other agent after [RESOLVED]. Your job is to verify the artifact faithfully represents what was agreed. Do not rewrite the artifact. Do not restart the debate. Be brief."
+DRIFT_CHECK_RULES="You are now in DRIFT CHECK PHASE. An artifact was just produced by the other agent after [RESOLVED]. Your only job is to verify the artifact faithfully represents what was agreed.
+
+Rules for this turn (these replace the normal debate protocol):
+- Output EXACTLY ONE of two markers on its own line: [ALIGNED] or [DRIFT].
+- [ALIGNED] followed by one sentence confirming alignment.
+- [DRIFT] followed by a short paragraph naming the specific drifts.
+- Do NOT rewrite the artifact. Do NOT restart the debate.
+- Do NOT emit [SEARCH:], [RESOLVED], or [DEADLOCKED]. These markers belong to the debate phase and will corrupt downstream extraction if emitted here. The ONLY markers you may output are [ALIGNED] or [DRIFT]."
 DRIFT_CHECK_PROMPT="The other agent produced an artifact after [RESOLVED]. Review it against the resolved position.
 - If it faithfully represents what was agreed, output [ALIGNED] on its own line followed by one sentence confirming alignment.
 - If it drifts from what was agreed, output [DRIFT] on its own line followed by a short paragraph naming the specific drifts.
@@ -585,33 +596,37 @@ PYEOF
 # Sets ARTIFACT_CONTENT and DRIFT_CHECK_CONTENT as side effects.
 run_artifact_phase() {
   local resolver_name="$1"
-  local resolver_provider resolver_model resolver_endpoint resolver_key resolver_system
-  local other_name other_provider other_model other_endpoint other_key other_system
+  local resolver_provider resolver_model resolver_endpoint resolver_key resolver_identity
+  local other_name other_provider other_model other_endpoint other_key other_identity
 
+  # Phase turns use IDENTITY only, not the full SYSTEM (which includes PROTOCOL_RULES
+  # with [SEARCH:]/[RESOLVED]/[DEADLOCKED] affordances). Phase-specific rules replace
+  # those so the agent can't emit debate-phase control tokens that would corrupt
+  # downstream parsing.
   if [[ "$resolver_name" == "$AGENT_A_NAME" ]]; then
     resolver_provider="$AGENT_A_PROVIDER"
     resolver_model="$AGENT_A_MODEL"
     resolver_endpoint="$AGENT_A_ENDPOINT"
     resolver_key="$AGENT_A_KEY"
-    resolver_system="$AGENT_A_SYSTEM"
+    resolver_identity="$AGENT_A_IDENTITY"
     other_name="$AGENT_B_NAME"
     other_provider="$AGENT_B_PROVIDER"
     other_model="$AGENT_B_MODEL"
     other_endpoint="$AGENT_B_ENDPOINT"
     other_key="$AGENT_B_KEY"
-    other_system="$AGENT_B_SYSTEM"
+    other_identity="$AGENT_B_IDENTITY"
   else
     resolver_provider="$AGENT_B_PROVIDER"
     resolver_model="$AGENT_B_MODEL"
     resolver_endpoint="$AGENT_B_ENDPOINT"
     resolver_key="$AGENT_B_KEY"
-    resolver_system="$AGENT_B_SYSTEM"
+    resolver_identity="$AGENT_B_IDENTITY"
     other_name="$AGENT_A_NAME"
     other_provider="$AGENT_A_PROVIDER"
     other_model="$AGENT_A_MODEL"
     other_endpoint="$AGENT_A_ENDPOINT"
     other_key="$AGENT_A_KEY"
-    other_system="$AGENT_A_SYSTEM"
+    other_identity="$AGENT_A_IDENTITY"
   fi
 
   # --- Artifact turn ---
@@ -620,7 +635,7 @@ run_artifact_phase() {
   local art_sys_file art_msgs_file
   art_sys_file=$(mktemp /tmp/hs-art-sys-$$.XXXXXX)
   art_msgs_file=$(mktemp /tmp/hs-art-msgs-$$.XXXXXX)
-  printf '%s\n\n%s' "$resolver_system" "$ARTIFACT_PHASE_RULES" > "$art_sys_file"
+  printf '%s\n\n%s' "$resolver_identity" "$ARTIFACT_PHASE_RULES" > "$art_sys_file"
   build_phase_messages "$resolver_name" "$art_msgs_file" "$ARTIFACT_PHASE_PROMPT"
 
   local raw_art
@@ -666,7 +681,7 @@ run_artifact_phase() {
   local drift_sys_file drift_msgs_file
   drift_sys_file=$(mktemp /tmp/hs-drift-sys-$$.XXXXXX)
   drift_msgs_file=$(mktemp /tmp/hs-drift-msgs-$$.XXXXXX)
-  printf '%s\n\n%s' "$other_system" "$DRIFT_CHECK_RULES" > "$drift_sys_file"
+  printf '%s\n\n%s' "$other_identity" "$DRIFT_CHECK_RULES" > "$drift_sys_file"
   build_phase_messages "$other_name" "$drift_msgs_file" "$DRIFT_CHECK_PROMPT"
 
   local raw_drift
@@ -701,6 +716,8 @@ run_artifact_phase() {
 
   if echo "$drift_text" | grep -q '\[DRIFT\]'; then
     log "DRIFT flagged by $other_name"
+    STATUS="DRIFT_FLAGGED"
+    DRIFT_FLAGGED=true
   else
     log "Drift check: aligned"
   fi
@@ -711,6 +728,7 @@ STATUS="MAX_ROUNDS"
 FINAL_RESOLUTION=""
 ARTIFACT_CONTENT=""
 DRIFT_CHECK_CONTENT=""
+DRIFT_FLAGGED=false
 TURN=0
 
 while [[ $TURN -lt $MAX_ROUNDS ]]; do
@@ -940,22 +958,31 @@ log "Output saved to $SOLVE_FILE"
 
 # --- JSON output ---
 if [[ "$JSON_OUTPUT" == "true" ]]; then
-  ARTIFACT_CONTENT_FILE=$(mktemp /tmp/hs-art-json-$$.XXXXXX)
-  DRIFT_CONTENT_FILE=$(mktemp /tmp/hs-drift-json-$$.XXXXXX)
-  printf '%s' "$ARTIFACT_CONTENT" > "$ARTIFACT_CONTENT_FILE"
-  printf '%s' "$DRIFT_CHECK_CONTENT" > "$DRIFT_CONTENT_FILE"
-
-  python3 - "$TRANSCRIPT_JSON" "$STATUS" "$TURN" "$MAX_ROUNDS" "$TOTAL_COST" "$AGENT_A_COST" "$AGENT_B_COST" "$TOPIC" "$SOLVE_FILE" "$AGENT_A_NAME" "$AGENT_B_NAME" "$ARTIFACT_CONTENT_FILE" "$DRIFT_CONTENT_FILE" << 'PYEOF'
-import json, sys
+  # Pass artifact/drift_check via env rather than temp files so nothing leaks on
+  # Python failure (the earlier temp-file approach skipped rm on error paths).
+  HS_ARTIFACT="$ARTIFACT_CONTENT" HS_DRIFT_CHECK="$DRIFT_CHECK_CONTENT" \
+    python3 - "$TRANSCRIPT_JSON" "$STATUS" "$TURN" "$MAX_ROUNDS" "$TOTAL_COST" "$AGENT_A_COST" "$AGENT_B_COST" "$TOPIC" "$SOLVE_FILE" "$AGENT_A_NAME" "$AGENT_B_NAME" << 'PYEOF'
+import json, os, sys
 
 with open(sys.argv[1]) as f: transcript = json.load(f)
-with open(sys.argv[12]) as f: artifact = f.read() or None
-with open(sys.argv[13]) as f: drift_check = f.read() or None
+artifact = os.environ.get("HS_ARTIFACT") or None
+drift_check = os.environ.get("HS_DRIFT_CHECK") or None
 
-# Pull resolution text from the entry that actually contains [RESOLVED],
-# not from transcript[-1] (which is the drift-check entry when artifact phase ran).
+# Phase-tagged transcript entries ("Alpha [artifact]", "Beta [drift-check]") are
+# skipped when searching for [RESOLVED] — the marker belongs to the debate phase
+# and any appearance of the literal string in a phase entry would be a false match.
+PHASE_TAGS = {"artifact", "drift-check"}
+
+def phase_tag(agent_name):
+    if " [" in agent_name and agent_name.endswith("]"):
+        _, _, rest = agent_name.rpartition(" [")
+        return rest[:-1]
+    return None
+
 resolution = None
 for entry in transcript:
+    if phase_tag(entry["agent"]) in PHASE_TAGS:
+        continue
     if "[RESOLVED]" in entry["text"]:
         resolution = entry["text"].split("[RESOLVED]", 1)[1].strip()
         break
@@ -974,7 +1001,6 @@ result = {
 }
 print(json.dumps(result, indent=2))
 PYEOF
-  rm -f "$ARTIFACT_CONTENT_FILE" "$DRIFT_CONTENT_FILE"
 fi
 
 # --- Notify ---
@@ -1021,3 +1047,12 @@ fi
 log "=== Hugr Solve complete ==="
 
 rm -f "$TRANSCRIPT_JSON"
+
+# Exit 3 signals the artifact drifted from the resolved position. The conversation
+# reached [RESOLVED] and the artifact was produced, but the drift check flagged
+# it as not faithfully representing what was agreed. The caller decides what
+# to do (retry, escalate to human, accept). We do NOT auto-restart here —
+# unbounded cost risk and the drift check itself may be wrong.
+if [[ "$DRIFT_FLAGGED" == "true" ]]; then
+  exit 3
+fi

@@ -38,6 +38,10 @@ When `[RESOLVED]` fires, two more turns run (can be disabled with `ARTIFACT_PHAS
 
 The output markdown gains `## Deliverable` and `## Drift Check` sections when these phases run. JSON output gains `artifact` and `drift_check` top-level fields.
 
+**Phase turns are isolated from the debate protocol.** They use agent `IDENTITY` only (not the full `PROTOCOL_RULES` with `[SEARCH:]`/`[RESOLVED]`/`[DEADLOCKED]` affordances). Phase-specific rules explicitly forbid debate control tokens so agents can't emit them here — that prevents silent corruption of downstream parsing. The drift-check agent may only output `[ALIGNED]` or `[DRIFT]`.
+
+**When `[DRIFT]` fires:** `status` becomes `DRIFT_FLAGGED` and the script exits with code 3. The conversation still reached `[RESOLVED]` and the artifact was produced — the drift check just found the two don't match. No auto-restart (unbounded cost risk and the drift check may itself be wrong). The caller decides: retry, escalate to human, or accept.
+
 ## Quick Start
 
 1. Clone:
@@ -167,6 +171,7 @@ Recommended: [vault-ai](https://github.com/pashpashpash/vault-ai) or any search 
 | 0 | Completed (RESOLVED, DEADLOCKED, or MAX_ROUNDS) |
 | 1 | Runtime error (API failure, lock contention) |
 | 2 | Config error (missing .env, missing keys) |
+| 3 | DRIFT_FLAGGED — conversation resolved, but the drift check found the artifact does not faithfully represent the resolved position. Caller decides whether to retry, escalate, or accept. |
 
 ## When to Use
 
