@@ -876,11 +876,21 @@ RESOLUTION_FILE=$(mktemp /tmp/hs-resolution-$$.XXXXXX)
 printf '%s' "${FINAL_RESOLUTION:-No explicit resolution reached.}" > "$RESOLUTION_FILE"
 
 python3 - "$TRANSCRIPT_JSON" "$TRANSCRIPT_RENDER_FILE" << 'PYEOF'
-import json, sys
+import json, sys, re
 with open(sys.argv[1]) as f: transcript = json.load(f)
 lines = []
-for i, entry in enumerate(transcript, 1):
-    lines.append(f"**{entry['agent']} (Turn {i}):**\n\n{entry['text']}\n\n---\n")
+turn_num = 0
+tag_re = re.compile(r"^(.*?)\s*\[([^\]]+)\]\s*$")
+for entry in transcript:
+    m = tag_re.match(entry["agent"])
+    if m:
+        base, tag = m.group(1), m.group(2)
+        label = tag.replace("-", " ").title()
+        header = f"**{base} ({label}):**"
+    else:
+        turn_num += 1
+        header = f"**{entry['agent']} (Turn {turn_num}):**"
+    lines.append(f"{header}\n\n{entry['text']}\n\n---\n")
 with open(sys.argv[2], "w") as f: f.write("\n".join(lines))
 PYEOF
 
@@ -930,9 +940,26 @@ log "Output saved to $SOLVE_FILE"
 
 # --- JSON output ---
 if [[ "$JSON_OUTPUT" == "true" ]]; then
-  python3 - "$TRANSCRIPT_JSON" "$STATUS" "$TURN" "$MAX_ROUNDS" "$TOTAL_COST" "$AGENT_A_COST" "$AGENT_B_COST" "$TOPIC" "$SOLVE_FILE" "$AGENT_A_NAME" "$AGENT_B_NAME" << 'PYEOF'
+  ARTIFACT_CONTENT_FILE=$(mktemp /tmp/hs-art-json-$$.XXXXXX)
+  DRIFT_CONTENT_FILE=$(mktemp /tmp/hs-drift-json-$$.XXXXXX)
+  printf '%s' "$ARTIFACT_CONTENT" > "$ARTIFACT_CONTENT_FILE"
+  printf '%s' "$DRIFT_CHECK_CONTENT" > "$DRIFT_CONTENT_FILE"
+
+  python3 - "$TRANSCRIPT_JSON" "$STATUS" "$TURN" "$MAX_ROUNDS" "$TOTAL_COST" "$AGENT_A_COST" "$AGENT_B_COST" "$TOPIC" "$SOLVE_FILE" "$AGENT_A_NAME" "$AGENT_B_NAME" "$ARTIFACT_CONTENT_FILE" "$DRIFT_CONTENT_FILE" << 'PYEOF'
 import json, sys
+
 with open(sys.argv[1]) as f: transcript = json.load(f)
+with open(sys.argv[12]) as f: artifact = f.read() or None
+with open(sys.argv[13]) as f: drift_check = f.read() or None
+
+# Pull resolution text from the entry that actually contains [RESOLVED],
+# not from transcript[-1] (which is the drift-check entry when artifact phase ran).
+resolution = None
+for entry in transcript:
+    if "[RESOLVED]" in entry["text"]:
+        resolution = entry["text"].split("[RESOLVED]", 1)[1].strip()
+        break
+
 result = {
     "status": sys.argv[2],
     "turns": int(sys.argv[3]),
@@ -941,10 +968,13 @@ result = {
     "topic": sys.argv[8],
     "output_file": sys.argv[9],
     "transcript": transcript,
-    "resolution": transcript[-1]["text"].split("[RESOLVED]")[-1].strip() if any("[RESOLVED]" in t["text"] for t in transcript) else None
+    "resolution": resolution,
+    "artifact": artifact,
+    "drift_check": drift_check
 }
 print(json.dumps(result, indent=2))
 PYEOF
+  rm -f "$ARTIFACT_CONTENT_FILE" "$DRIFT_CONTENT_FILE"
 fi
 
 # --- Notify ---
