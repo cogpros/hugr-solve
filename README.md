@@ -8,6 +8,7 @@ Pollock 2026.
 
 - **Two agents, forced adversarial conversation.** Agent A opens with a position. Agent B challenges, extends, or corrects. They alternate turns.
 - **Three outcomes.** `[RESOLVED]` (convergence), `[DEADLOCKED]` (needs human input), or max rounds hit. Deadlock is valid. It means the problem needs you, not more compute.
+- **Artifact phase after resolution.** When agents converge, the resolver produces the deliverable with an expanded token budget, then the opposing agent runs a drift check against the resolved position. Separates synthesis from artifact production so large outputs don't get truncated by the debate turn's budget. Disable with `ARTIFACT_PHASE=false`.
 - **Shared memory via Seedvault.** Either agent can search mid-turn with `[SEARCH: query]`. Results feed back before their next response. Optional but recommended.
 - **Budget-capped and cost-tracked.** Per-turn cost estimates with a hard cap. Stops before burning money on circular conversations.
 - **Retry logic.** Transient API failures get 3 retries with backoff.

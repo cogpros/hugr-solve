@@ -10,7 +10,7 @@ license: MIT
 compatibility: Requires bash, curl, python3. macOS or Linux.
 metadata:
   author: Dustin Pollock / cogpros
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Hugr Solve
@@ -28,6 +28,15 @@ Disagreement is the mechanism, not a failure mode. Both agents must speak before
 Either agent can search shared memory (Seedvault) mid-turn by outputting `[SEARCH: query]`. Results are fed back before their next response. This gives both agents access to context beyond the problem statement.
 
 Deadlock is a valid outcome. It means the problem needs human judgment, not more compute.
+
+### Artifact Phase
+
+When `[RESOLVED]` fires, two more turns run (can be disabled with `ARTIFACT_PHASE=false`):
+
+1. **Artifact turn.** The resolving agent produces the final deliverable with its own `ARTIFACT_MAX_TOKENS` budget (default 6000). This separates synthesis from artifact production so large tables, code, or documents don't get truncated by the debate turn's smaller budget.
+2. **Drift check turn.** The opposing agent reviews the artifact against the resolved position. It outputs `[ALIGNED]` with a one-sentence confirmation, or `[DRIFT]` with a short paragraph naming the specific drifts. The drift check does not rewrite the artifact — it is a verification pass, not another debate round.
+
+The output markdown gains `## Deliverable` and `## Drift Check` sections when these phases run. JSON output gains `artifact` and `drift_check` top-level fields.
 
 ## Quick Start
 
@@ -86,9 +95,13 @@ When `--json-output` is set, the script prints structured JSON to stdout:
   "topic": "monorepo-vs-separate",
   "output_file": "./output/2026-03-27-monorepo-vs-separate.md",
   "transcript": [...],
-  "resolution": "..."
+  "resolution": "...",
+  "artifact": "...",
+  "drift_check": "..."
 }
 ```
+
+`artifact` and `drift_check` are `null` when the artifact phase was disabled, skipped for budget, or failed.
 
 ## Configuration
 
@@ -119,8 +132,19 @@ The `PROTOCOL_RULES` string in config.sh defines how the adversarial conversatio
 - `[RESOLVED]` or `[DEADLOCKED]` to end
 - No first-turn resolutions
 - Build on what the other said, don't repeat
+- Keep `[RESOLVED]` turns concise — the artifact phase handles the deliverable
 
 Edit if needed, but test after changing.
+
+### Artifact Phase
+
+| Setting | Description |
+|---------|-------------|
+| `ARTIFACT_PHASE` | `true` (default) or `false`. When `false`, the script stops at `[RESOLVED]` like pre-1.1 behavior. |
+| `ARTIFACT_MAX_TOKENS` | Token budget for the artifact turn (default: 6000). Raise if deliverables still truncate. |
+| `DRIFT_CHECK_MAX_TOKENS` | Token budget for the drift-check turn (default: 1500). Keep small — drift checks should be brief. |
+
+The artifact and drift-check turns inherit each agent's base system prompt and add phase-specific rules. They do not participate in the search loop.
 
 ### Providers
 
