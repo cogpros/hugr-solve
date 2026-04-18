@@ -34,6 +34,17 @@ MAX_SEARCH_LOOPS=2                    # Max Seedvault searches per turn before f
 TEMPERATURE=0.5                       # Temperature for all API calls.
 
 # ============================================================
+# ARTIFACT PHASE
+# ============================================================
+# After [RESOLVED] fires, run two extra turns:
+#   1. Resolving agent produces the deliverable with an expanded token budget.
+#   2. Opposing agent does a drift check against what was resolved.
+# Prevents synthesis and artifact production from sharing one max_tokens budget.
+ARTIFACT_PHASE=true                   # Set false to restore original single-turn behavior.
+ARTIFACT_MAX_TOKENS=6000              # Token budget for the artifact turn.
+DRIFT_CHECK_MAX_TOKENS=1500           # Token budget for the drift-check turn.
+
+# ============================================================
 # AGENT SYSTEM PROMPTS
 # ============================================================
 # These define how each agent approaches the problem.
@@ -53,7 +64,7 @@ AGENT_B_IDENTITY="You are ${AGENT_B_NAME}, one half of a problem-solving pair. Y
 PROTOCOL_RULES="Rules:
 - State your position clearly. If you disagree with the other agent, say why.
 - If you need information from shared memory, output [SEARCH: your query] on its own line. Results will be provided before your next response. Only search when truly blocked. Reasoning is free.
-- If you have enough information to solve the problem AND you are past the opening phase, output [RESOLVED] on its own line followed by the solution.
+- If you have enough information to solve the problem AND you are past the opening phase, output [RESOLVED] on its own line followed by a concise statement of the resolved position. A dedicated artifact phase follows where the resolving agent produces the full deliverable with an expanded token budget — do not attempt to cram large tables, long code, or full documents into the [RESOLVED] turn itself.
 - If the problem cannot be resolved without human input, output [DEADLOCKED] on its own line and state what is missing.
 - Be direct. No preamble. No filler. Work the problem.
 - Build on what the other agent said. Don't repeat. Advance.

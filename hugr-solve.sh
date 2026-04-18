@@ -23,6 +23,16 @@ PROBLEM_FILE=""
 TRIGGER_SOURCE="cli"
 NO_NOTIFY=false
 JSON_OUTPUT=false
+ARTIFACT_PHASE=true
+ARTIFACT_MAX_TOKENS=6000
+DRIFT_CHECK_MAX_TOKENS=1500
+ARTIFACT_PHASE_RULES="You are now in ARTIFACT PHASE. The adversarial discussion has already resolved. Your only job in this turn is to produce the final deliverable cleanly, using the full token budget available to you. Do not reopen closed questions. Do not restart the debate. Build the thing."
+ARTIFACT_PHASE_PROMPT="The discussion has reached [RESOLVED]. Now produce the final deliverable based on what was just resolved. Use the full token budget. No preamble. No reopening of debate. Build the artifact the problem asked for."
+DRIFT_CHECK_RULES="You are now in DRIFT CHECK PHASE. An artifact was just produced by the other agent after [RESOLVED]. Your job is to verify the artifact faithfully represents what was agreed. Do not rewrite the artifact. Do not restart the debate. Be brief."
+DRIFT_CHECK_PROMPT="The other agent produced an artifact after [RESOLVED]. Review it against the resolved position.
+- If it faithfully represents what was agreed, output [ALIGNED] on its own line followed by one sentence confirming alignment.
+- If it drifts from what was agreed, output [DRIFT] on its own line followed by a short paragraph naming the specific drifts.
+Do not rewrite the artifact. Max one paragraph."
 
 # --- Parse args ---
 while [[ $# -gt 0 ]]; do
@@ -504,9 +514,203 @@ with open(sys.argv[1], "w") as f: json.dump(transcript, f)
 PYEOF
 }
 
+# Build messages for a phase turn (artifact or drift-check): full transcript
+# plus a final user instruction. Unlike build_messages, this always appends
+# the phase instruction regardless of whose turn it was.
+build_phase_messages() {
+  local target_agent="$1"
+  local output_file="$2"
+  local phase_instruction="$3"
+
+  python3 - "$TRANSCRIPT_JSON" "$target_agent" "$output_file" "$PROBLEM" "$SEEDVAULT_CONTEXT" "$phase_instruction" "$AGENT_A_NAME" << 'PYEOF'
+import json, sys
+
+with open(sys.argv[1]) as f:
+    transcript = json.load(f)
+
+target = sys.argv[2]
+output_file = sys.argv[3]
+problem = sys.argv[4]
+sv_context = sys.argv[5]
+phase_instruction = sys.argv[6]
+agent_a_name = sys.argv[7]
+
+first_msg = f"PROBLEM TO SOLVE:\n\n{problem}"
+if sv_context:
+    first_msg += f"\n\nSHARED MEMORY (Seedvault):\n{sv_context}"
+
+# Strip phase tags like "[artifact]" so role assignment works against base names.
+def base_name(agent):
+    return agent.split(" [")[0]
+
+conv = []
+for entry in transcript:
+    role = "assistant" if base_name(entry["agent"]) == target else "user"
+    conv.append({"role": role, "content": entry["text"]})
+
+messages = []
+is_opener = (target == agent_a_name)
+
+if is_opener:
+    messages.append({"role": "user", "content": first_msg})
+    for c in conv:
+        messages.append(c)
+else:
+    if conv:
+        messages.append({"role": "user", "content": first_msg + "\n\n" + conv[0]["content"]})
+        for c in conv[1:]:
+            messages.append(c)
+    else:
+        messages.append({"role": "user", "content": first_msg})
+
+messages.append({"role": "user", "content": phase_instruction})
+
+merged = []
+for m in messages:
+    if merged and merged[-1]["role"] == m["role"]:
+        merged[-1]["content"] += "\n\n" + m["content"]
+    else:
+        merged.append(m)
+
+if merged and merged[0]["role"] != "user":
+    merged.insert(0, {"role": "user", "content": first_msg})
+
+with open(output_file, "w") as f:
+    json.dump(merged, f)
+PYEOF
+}
+
+# Artifact phase: after [RESOLVED], the resolving agent produces the deliverable
+# with an expanded token budget, then the opposing agent checks for drift.
+# Sets ARTIFACT_CONTENT and DRIFT_CHECK_CONTENT as side effects.
+run_artifact_phase() {
+  local resolver_name="$1"
+  local resolver_provider resolver_model resolver_endpoint resolver_key resolver_system
+  local other_name other_provider other_model other_endpoint other_key other_system
+
+  if [[ "$resolver_name" == "$AGENT_A_NAME" ]]; then
+    resolver_provider="$AGENT_A_PROVIDER"
+    resolver_model="$AGENT_A_MODEL"
+    resolver_endpoint="$AGENT_A_ENDPOINT"
+    resolver_key="$AGENT_A_KEY"
+    resolver_system="$AGENT_A_SYSTEM"
+    other_name="$AGENT_B_NAME"
+    other_provider="$AGENT_B_PROVIDER"
+    other_model="$AGENT_B_MODEL"
+    other_endpoint="$AGENT_B_ENDPOINT"
+    other_key="$AGENT_B_KEY"
+    other_system="$AGENT_B_SYSTEM"
+  else
+    resolver_provider="$AGENT_B_PROVIDER"
+    resolver_model="$AGENT_B_MODEL"
+    resolver_endpoint="$AGENT_B_ENDPOINT"
+    resolver_key="$AGENT_B_KEY"
+    resolver_system="$AGENT_B_SYSTEM"
+    other_name="$AGENT_A_NAME"
+    other_provider="$AGENT_A_PROVIDER"
+    other_model="$AGENT_A_MODEL"
+    other_endpoint="$AGENT_A_ENDPOINT"
+    other_key="$AGENT_A_KEY"
+    other_system="$AGENT_A_SYSTEM"
+  fi
+
+  # --- Artifact turn ---
+  log "--- Artifact phase: $resolver_name producing deliverable (max_tokens: $ARTIFACT_MAX_TOKENS) ---"
+
+  local art_sys_file art_msgs_file
+  art_sys_file=$(mktemp /tmp/hs-art-sys-$$.XXXXXX)
+  art_msgs_file=$(mktemp /tmp/hs-art-msgs-$$.XXXXXX)
+  printf '%s\n\n%s' "$resolver_system" "$ARTIFACT_PHASE_RULES" > "$art_sys_file"
+  build_phase_messages "$resolver_name" "$art_msgs_file" "$ARTIFACT_PHASE_PROMPT"
+
+  local raw_art
+  raw_art=$(call_agent "$resolver_name" "$resolver_provider" "$resolver_endpoint" "$resolver_key" \
+    "$resolver_model" "$art_msgs_file" "$art_sys_file" "$ARTIFACT_MAX_TOKENS" "$TEMPERATURE")
+  rm -f "$art_msgs_file" "$art_sys_file"
+
+  if is_api_error "$raw_art"; then
+    log "Artifact phase failed: $raw_art. Continuing without artifact."
+    return
+  fi
+
+  local art_usage art_text
+  art_usage=$(echo "$raw_art" | head -1)
+  if [[ "$art_usage" == USAGE:* ]]; then
+    local art_in art_out
+    art_in=$(echo "$art_usage" | cut -d: -f2)
+    art_out=$(echo "$art_usage" | cut -d: -f3)
+    art_text=$(echo "$raw_art" | tail -n +2)
+    add_cost "$resolver_name" "$art_in" "$art_out"
+  else
+    art_text="$raw_art"
+  fi
+
+  ARTIFACT_CONTENT="$art_text"
+
+  local art_file
+  art_file=$(mktemp /tmp/hs-artresp-$$.XXXXXX)
+  printf '%s' "$art_text" > "$art_file"
+  append_transcript "$resolver_name [artifact]" "$art_file"
+  rm -f "$art_file"
+
+  log "Artifact produced (${#art_text} chars)"
+
+  if budget_exceeded; then
+    log "Budget exceeded after artifact. Skipping drift check."
+    return
+  fi
+
+  # --- Drift check turn ---
+  log "--- Drift check: $other_name reviewing artifact (max_tokens: $DRIFT_CHECK_MAX_TOKENS) ---"
+
+  local drift_sys_file drift_msgs_file
+  drift_sys_file=$(mktemp /tmp/hs-drift-sys-$$.XXXXXX)
+  drift_msgs_file=$(mktemp /tmp/hs-drift-msgs-$$.XXXXXX)
+  printf '%s\n\n%s' "$other_system" "$DRIFT_CHECK_RULES" > "$drift_sys_file"
+  build_phase_messages "$other_name" "$drift_msgs_file" "$DRIFT_CHECK_PROMPT"
+
+  local raw_drift
+  raw_drift=$(call_agent "$other_name" "$other_provider" "$other_endpoint" "$other_key" \
+    "$other_model" "$drift_msgs_file" "$drift_sys_file" "$DRIFT_CHECK_MAX_TOKENS" "$TEMPERATURE")
+  rm -f "$drift_msgs_file" "$drift_sys_file"
+
+  if is_api_error "$raw_drift"; then
+    log "Drift check failed: $raw_drift. Continuing without drift check."
+    return
+  fi
+
+  local drift_usage drift_text
+  drift_usage=$(echo "$raw_drift" | head -1)
+  if [[ "$drift_usage" == USAGE:* ]]; then
+    local drift_in drift_out
+    drift_in=$(echo "$drift_usage" | cut -d: -f2)
+    drift_out=$(echo "$drift_usage" | cut -d: -f3)
+    drift_text=$(echo "$raw_drift" | tail -n +2)
+    add_cost "$other_name" "$drift_in" "$drift_out"
+  else
+    drift_text="$raw_drift"
+  fi
+
+  DRIFT_CHECK_CONTENT="$drift_text"
+
+  local drift_file
+  drift_file=$(mktemp /tmp/hs-driftresp-$$.XXXXXX)
+  printf '%s' "$drift_text" > "$drift_file"
+  append_transcript "$other_name [drift-check]" "$drift_file"
+  rm -f "$drift_file"
+
+  if echo "$drift_text" | grep -q '\[DRIFT\]'; then
+    log "DRIFT flagged by $other_name"
+  else
+    log "Drift check: aligned"
+  fi
+}
+
 # --- Conversation loop ---
 STATUS="MAX_ROUNDS"
 FINAL_RESOLUTION=""
+ARTIFACT_CONTENT=""
+DRIFT_CHECK_CONTENT=""
 TURN=0
 
 while [[ $TURN -lt $MAX_ROUNDS ]]; do
@@ -629,6 +833,9 @@ $result
         FINAL_RESOLUTION=$(echo "$RESPONSE_TEXT" | sed -n '/\[RESOLVED\]/,$ p' | tail -n +2)
         log "RESOLVED by $CURRENT_NAME at turn $TURN"
         rm -f "$SYSTEM_FILE"
+        if [[ "$ARTIFACT_PHASE" == "true" ]] && ! budget_exceeded; then
+          run_artifact_phase "$CURRENT_NAME"
+        fi
         break 2
       fi
     fi
@@ -681,6 +888,16 @@ TRANSCRIPT_RENDERED=$(cat "$TRANSCRIPT_RENDER_FILE")
 RESOLUTION_RENDERED=$(cat "$RESOLUTION_FILE")
 rm -f "$TRANSCRIPT_RENDER_FILE" "$RESOLUTION_FILE"
 
+ARTIFACT_SECTION=""
+if [[ -n "$ARTIFACT_CONTENT" ]]; then
+  ARTIFACT_SECTION=$'\n## Deliverable\n\n'"$ARTIFACT_CONTENT"$'\n'
+fi
+
+DRIFT_SECTION=""
+if [[ -n "$DRIFT_CHECK_CONTENT" ]]; then
+  DRIFT_SECTION=$'\n## Drift Check\n\n'"$DRIFT_CHECK_CONTENT"$'\n'
+fi
+
 NOW_DISPLAY=$(date '+%Y-%m-%d %H:%M')
 
 cat > "$SOLVE_FILE" << OUTPUTEOF
@@ -706,6 +923,7 @@ $TRANSCRIPT_RENDERED
 ## Resolution
 
 $RESOLUTION_RENDERED
+$ARTIFACT_SECTION$DRIFT_SECTION
 OUTPUTEOF
 
 log "Output saved to $SOLVE_FILE"
