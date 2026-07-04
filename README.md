@@ -142,7 +142,7 @@ hugr-solve/
 
 Built by Dustin Pollock as part of the [cogpros](https://github.com/cogpros) research program. The adversarial synthesis pattern emerged from running two cognitive prosthetic agents (EOM and Odin) against hard problems daily. The protocol turned out to be useful beyond its original context.
 
-See also: [Two Birds Talking](https://github.com/cogpros/two-birds-talking) (lightweight daily debrief version).
+See also: [Two Birds Talking](https://github.com/cogpros/two-birds-talking) (lightweight daily debrief version) and [prism-orchestrator](https://github.com/cogpros/prism-orchestrator) (the same adversarial instinct pointed at code review, multiple reviewer roles instead of two debaters).
 
 ## License
 
